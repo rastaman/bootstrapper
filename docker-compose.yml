@@ -1,0 +1,22 @@
+version: '2'
+services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BOOTSTRAPPER_SERVER: "yes"
+    ports:
+      - "8000:8000"
+      - "6379:6379"
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      BOOTSTRAPPER_SERVER: "no"
+      REDISTOGO_URL: "redis://server:6379"
+    depends_on:
+      - server
+    links:
+      - server

@@ -2,3 +2,5 @@ redis
 rq
 flask
 ansible
+gunicorn
+configparser

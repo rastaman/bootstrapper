@@ -1,20 +1,22 @@
+import ConfigParser
+import json
+import logging
+import random
+import string
+import subprocess
+
+import jinja2
+
+from ansible import callbacks
+from ansible import utils
+import ansible.inventory
+import ansible.playbook
+from ec2_handler import launch_ec2_inst, list_ec2_host, gen_eip_pbook_yml, get_role_eip, create_ec2_lc
+from flask import Flask, request
 from rq import Queue
 from rq.job import Job
 from worker import conn
-import jinja2
-import random
-import string
-import json
-import logging
-import subprocess
-import ConfigParser
 
-from ec2_handler import launch_ec2_inst, list_ec2_host, gen_eip_pbook_yml, get_role_eip, create_ec2_lc
-from flask import Flask, request
-import ansible.playbook
-import ansible.inventory
-from ansible import callbacks
-from ansible import utils
 
 app = Flask(__name__)
 app.config['DEBUG'] = True
@@ -26,15 +28,15 @@ q = Queue(connection=conn)
 
 stats = callbacks.AggregateStats()
 playbook_cb = callbacks.PlaybookCallbacks(verbose=utils.VERBOSITY)
-runner_cb = callbacks.PlaybookRunnerCallbacks(stats,verbose=utils.VERBOSITY)
+runner_cb = callbacks.PlaybookRunnerCallbacks(stats, verbose=utils.VERBOSITY)
 
 
 def gen_pbook_yml(ip, role, env):
   r_text = ''
-  templateLoader = jinja2.FileSystemLoader( searchpath="/" )
-  templateEnv = jinja2.Environment( loader=templateLoader )
+  templateLoader = jinja2.FileSystemLoader(searchpath="/")
+  templateEnv = jinja2.Environment(loader=templateLoader)
   TEMPLATE_FILE = "/home/ubuntu/bootstrapper/templates/playbook.jinja"
-  template = templateEnv.get_template( TEMPLATE_FILE )
+  template = templateEnv.get_template(TEMPLATE_FILE)
   role = role.split(',')
   r_text = ''.join([random.choice(string.ascii_letters + string.digits) for n in xrange(32)])
   temp_file = "/tmp/" + "ans-" + r_text + ".yml"
@@ -42,11 +44,11 @@ def gen_pbook_yml(ip, role, env):
 		   "ansible_environ": env,
 		   "roles": role
 		 }
-  outputText = template.render( templateVars )
+  outputText = template.render(templateVars)
   text_file = open(temp_file, "w")
   text_file.write(outputText)
   text_file.close()
-  app.logger.debug("Playbook YML file create at %s" %temp_file)
+  app.logger.debug("Playbook YML file create at %s" % temp_file)
   return temp_file
 
 
@@ -54,7 +56,7 @@ def gen_pbook_yml(ip, role, env):
 def ansble_run(ans_inst_ip, ans_inst_role, ans_env, ans_user, ans_key_file):
   inventory = ansible.inventory.Inventory(Config.get('bootstrapper', 'ansible_base') + Config.get('bootstrapper', 'ec2_inv_file'))
   yml_pbook = gen_pbook_yml(ans_inst_ip, ans_inst_role, ans_env)
-  app.logger.info("Executing Ansible Playbook on %s with Role %s" %(ans_inst_ip, ans_inst_role))
+  app.logger.info("Executing Ansible Playbook on %s with Role %s" % (ans_inst_ip, ans_inst_role))
   run_pbook = ansible.playbook.PlayBook(
 		 playbook=yml_pbook,
 		 callbacks=playbook_cb,
@@ -67,8 +69,8 @@ def ansble_run(ans_inst_ip, ans_inst_role, ans_env, ans_user, ans_key_file):
 		    'env': ans_env
 		 }
 		 ).run()
-  app.logger.info("Playbook execution completed on %s with Role %s" %(ans_inst_ip, ans_inst_role))
-  app.logger.debug("Ansible Playbook execution completed with Result %s" %run_pbook)
+  app.logger.info("Playbook execution completed on %s with Role %s" % (ans_inst_ip, ans_inst_role))
+  app.logger.debug("Ansible Playbook execution completed with Result %s" % run_pbook)
   return run_pbook
 
 
@@ -77,7 +79,7 @@ def ansble_code_update(ans_tags, ans_env, ans_user, ans_key_file):
   inventory = ansible.inventory.Inventory(Config.get('bootstrapper', 'ansible_base') + Config.get('bootstrapper', 'ec2_inv_file'))
   yml_pbook = "/home/ubuntu/bootstrapper/site.yml"
   ans_tags = ans_tags.split(',')
-  app.logger.info("CodeUpdate startin on %s with tags %s" %(ans_env, ans_tags))
+  app.logger.info("CodeUpdate startin on %s with tags %s" % (ans_env, ans_tags))
   run_pbook = ansible.playbook.PlayBook(
                  playbook=yml_pbook,
                  callbacks=playbook_cb,
@@ -91,15 +93,15 @@ def ansble_code_update(ans_tags, ans_env, ans_user, ans_key_file):
                     'env': ans_env
                  }
                  ).run()
-  app.logger.info("CodeUpdate completed on %s with tags %s" %(ans_env, ans_tags))
-  app.logger.debug("CodeUpdate completed on %s with Result %s" %(ans_tags, run_pbook))
+  app.logger.info("CodeUpdate completed on %s with tags %s" % (ans_env, ans_tags))
+  app.logger.debug("CodeUpdate completed on %s with Result %s" % (ans_tags, run_pbook))
   return run_pbook
 
 
 
 def ansble_adhoc_run(ans_mod, ans_host, ans_user, ans_key_file, module_args):
   inventory = ansible.inventory.Inventory(Config.get('bootstrapper', 'ansible_base') + Config.get('bootstrapper', 'ec2_inv_file'))
-  app.logger.info("Executing Ansible Runner on %s with module %s" %(ans_host, ans_mod))
+  app.logger.info("Executing Ansible Runner on %s with module %s" % (ans_host, ans_mod))
   run_adhoc = ansible.runner.Runner(
                  module_name=ans_mod,
                  module_args=module_args,
@@ -108,8 +110,8 @@ def ansble_adhoc_run(ans_mod, ans_host, ans_user, ans_key_file, module_args):
                  remote_user=ans_user,
                  private_key_file=ans_key_file,
                  ).run()
-  app.logger.info("Executing Ansible Runner on %s with module %s" %(ans_host, ans_mod))
-  app.logger.info("Runner execution completed with Result: %s" %run_adhoc)
+  app.logger.info("Executing Ansible Runner on %s with module %s" % (ans_host, ans_mod))
+  app.logger.info("Runner execution completed with Result: %s" % run_adhoc)
   return run_adhoc
 
 def ansble_set_eip(ans_env, ans_role, ec2_inst_id, ans_user, ans_key_file):
@@ -144,14 +146,14 @@ def role():
   env = request.form['env']
   ans_remote_user = Config.get('bootstrapper', 'remote_user')
   ans_private_key = Config.get('bootstrapper', 'key')
-  app.logger.info("POST request received for /ansible/role/ with parameters Host=%s, Role=%s and Env=%s" %(inst_ip, inst_role, env))
+  app.logger.info("POST request received for /ansible/role/ with parameters Host=%s, Role=%s and Env=%s" % (inst_ip, inst_role, env))
   app.logger.info("Preparing to Queue the Job")
   job = q.enqueue_call(
             func=ansble_run, args=(inst_ip, inst_role, env, ans_remote_user, ans_private_key,), result_ttl=5000, timeout=2000
         )
   jid = job.get_id()
   if jid:
-    app.logger.info("Job Succesfully Queued with JobID: %s" %jid)
+    app.logger.info("Job Succesfully Queued with JobID: %s" % jid)
   else:
     app.logger.error("Failed to Queue the Job")
   return jid
@@ -164,13 +166,13 @@ def code_update():
   env = request.form['env']
   ans_remote_user = Config.get('bootstrapper', 'remote_user')
   ans_private_key = Config.get('bootstrapper', 'secret_base') + Config.get('bootstrapper', 'remote_key')
-  app.logger.info("CodeUpdate initiated for %s on %s" %(tags, env))
+  app.logger.info("CodeUpdate initiated for %s on %s" % (tags, env))
   job = q.enqueue_call(
             func=ansble_code_update, args=(tags, env, ans_remote_user, ans_private_key,), result_ttl=5000, timeout=6000
         )
   jid = job.get_id()
   if jid:
-    app.logger.info("Job Succesfully Queued with JobID: %s" %jid)
+    app.logger.info("Job Succesfully Queued with JobID: %s" % jid)
   else:
     app.logger.error("Failed to Queue the Job")
   return jid
@@ -184,7 +186,7 @@ def adhoc_job():
   mod_args = request.args.get("args")
   ans_remote_user = Config.get('bootstrapper', 'remote_user')
   ans_private_key = Config.get('bootstrapper', 'secret_base') + Config.get('bootstrapper', 'remote_key')
-  app.logger.info("Adhoc command initiated on %s with Module %s" %(host, mod))
+  app.logger.info("Adhoc command initiated on %s with Module %s" % (host, mod))
   if mod_args is None:
     mod_args = ''
   job = q.enqueue_call(
@@ -192,7 +194,7 @@ def adhoc_job():
         )
   jid = job.get_id()
   if jid:
-    app.logger.info("Job Succesfully Queued with JobID: %s" %jid)
+    app.logger.info("Job Succesfully Queued with JobID: %s" % jid)
   else:
     app.logger.error("Failed to Queue the Job")
   return jid
@@ -205,11 +207,11 @@ def adhoc():
   mod_args = request.args.get("args")
   ans_remote_user = Config.get('bootstrapper', 'remote_user')
   ans_private_key = Config.get('bootstrapper', 'secret_base') + Config.get('bootstrapper', 'remote_key')
-  app.logger.info("Adhoc command initiated on %s with Module %s" %(host, mod))
+  app.logger.info("Adhoc command initiated on %s with Module %s" % (host, mod))
   if mod_args is None:
     mod_args = ''
   ret = ansble_adhoc_run(mod, host, ans_remote_user, ans_private_key, mod_args)
-  app.logger.debug("Adhoc command execution finished with %s" %ret)
+  app.logger.debug("Adhoc command execution finished with %s" % ret)
   return json.dumps(ret), 200
 
 
@@ -229,7 +231,7 @@ def ec2_launch():
         )
   jid = job.get_id()
   if jid:
-    app.logger.info("Job Succesfully Queued with JobID: %s" %jid)
+    app.logger.info("Job Succesfully Queued with JobID: %s" % jid)
   else:
     app.logger.error("Failed to Queue the Job")
   return jid
@@ -256,7 +258,7 @@ def ec2_set_eip():
         )
   jid = job.get_id()
   if jid:
-    app.logger.info("Job Succesfully Queued with JobID: %s" %jid)
+    app.logger.info("Job Succesfully Queued with JobID: %s" % jid)
   else:
     app.logger.error("Failed to Queue the Job")
   return jid
@@ -279,7 +281,7 @@ def create_lc():
 	)
   jid = job.get_id()
   if jid:
-    app.logger.info("Job Succesfully Queued with JobID: %s" %jid)
+    app.logger.info("Job Succesfully Queued with JobID: %s" % jid)
   else:
     app.logger.error("Failed to Queue the Job")
   return jid
@@ -292,10 +294,10 @@ def list_lc():
   else:
     ec2_reg = 'us-east-1'
   app.logger.info("executing list-lc on %s %ans_env")
-  launch_configs = (subprocess.check_output("/home/ubuntu/awscli/aws autoscaling describe-launch-configurations --region=%s" %ec2_reg, shell=True)).rstrip()
+  launch_configs = (subprocess.check_output("/home/ubuntu/awscli/aws autoscaling describe-launch-configurations --region=%s" % ec2_reg, shell=True)).rstrip()
   lc_list = []
   json_data = json.loads(launch_configs)
-  app.logger.debug("list of launch config's returned %s" %json_data)
+  app.logger.debug("list of launch config's returned %s" % json_data)
   for j in json_data['LaunchConfigurations']:
      lc_list.append(j['LaunchConfigurationName'])
   return json.dumps({'launch-configs': lc_list}), 200
